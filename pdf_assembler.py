@@ -148,14 +148,21 @@ class PDFAssembler:
             self.log(f"❌ Xatolik: {e}", "ERROR")
     
     def process(self, create_combined: bool = True) -> Tuple[bool, List[Path]]:
+        # Barcha PDF fayllar
+        all_pdfs = list(self.input_dir.glob("*.pdf"))
         
-        label_files = list(self.input_dir.glob("*тикетка*.pdf")) + \
-                     list(self.input_dir.glob("*Этикетка*.pdf"))
+        # 1) Nomi bo'yicha aniq etiketkani topishga harakat qilamiz
+        label_files = [
+            f for f in all_pdfs
+            if re.search(r"(тикетка|этикетка|все\s*размеры)", f.name, re.IGNORECASE)
+        ]
         
+        # Agar baribir topilmasa – eski logikani ishlatamiz (o‘lcham raqami yo‘q bo‘lgan fayl)
         if not label_files:
-            all_pdfs = list(self.input_dir.glob("*.pdf"))
-            label_files = [f for f in all_pdfs 
-                          if not any(str(size) in f.name for size in self.size_order)]
+            label_files = [
+                f for f in all_pdfs
+                if not any(str(size) in f.name for size in self.size_order)
+            ]
         
         if not label_files:
             self.log("❌ Etiketka fayli topilmadi!", "ERROR")
@@ -163,7 +170,8 @@ class PDFAssembler:
         
         label_file = label_files[0]
         
-        kiz_files = [f for f in self.input_dir.glob("*.pdf") if f != label_file]
+        # KIZ fayllar – barcha PDF lar ichidan etiketkani chiqarib tashlaymiz
+        kiz_files = [f for f in all_pdfs if f != label_file]
         
         if not kiz_files:
             self.log("❌ KIZ fayllari topilmadi!", "ERROR")
@@ -174,7 +182,7 @@ class PDFAssembler:
         
         label_reader = PdfReader(label_file)
         size_pages = self.find_label_pages(label_file)
-        
+            
         if not size_pages:
             self.log("❌ Etiketka sahifalari topilmadi!", "ERROR")
             return False, []
