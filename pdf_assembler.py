@@ -75,16 +75,52 @@ class PDFAssembler:
             return {}
     
     def extract_kiz_info(self, filename: str) -> Dict[str, str]:
-        name = filename.replace('.pdf', '').replace('.PDF', '')
+        # Faqat fayl nomi (kengaytmasiz)
+        name = Path(filename).stem
         parts = name.split()
         
-        if len(parts) >= 3:
-            size = parts[-1]
-            article = ' '.join(parts[:2])
-            color = ' '.join(parts[2:-1])
-            return {'article': article, 'color': color, 'size': size}
+        size = ""
         
-        return {'article': '', 'color': '', 'size': ''}
+        # 1) Avval nom ichidagi raqamlarni izlaymiz (orqadan boshlab)
+        for part in reversed(parts):
+            if part.isdigit():
+                num = int(part)
+                if num in self.size_order:  # [42, 44, 46, 48, 50, 52, 54, 56]
+                    size = str(num)
+                    break
+        
+        # 2) Agar topilmasa: '56 разме', '56 размер', '56размер' kabi holatlar
+        if not size:
+            m = re.search(r'(\d{2})\s*разм', name, re.IGNORECASE)
+            if m:
+                num = int(m.group(1))
+                if num in self.size_order:
+                    size = str(num)
+        
+        # Article va rangni ajratamiz
+        article = ""
+        color = ""
+        
+        if len(parts) >= 2:
+            article = " ".join(parts[:2])  # masalan: "Ю 3718"
+        
+        if size:
+            # size qaysi indeksda – shunga qarab color'ni olamiz
+            if size in parts:
+                size_idx = parts.index(size)
+                # rang – 3-elementdan (index 2) boshlab size'ga qadar
+                if size_idx > 2:
+                    color = " ".join(parts[2:size_idx])
+                else:
+                    color = " ".join(parts[2:])
+            else:
+                # size matndan (regex) topilgan bo'lsa, shunchaki qolganini rang deb olamiz
+                color = " ".join(parts[2:])
+        else:
+            # O'lchamni topa olmadik – faqat article va rang
+            color = " ".join(parts[2:])
+        
+        return {"article": article, "color": color, "size": size}
     
     def assemble_pdf_for_size(
         self,
