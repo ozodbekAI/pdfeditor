@@ -190,7 +190,7 @@ class PDFAssembler:
         # 1) Nomi bo'yicha aniq etiketkani topishga harakat qilamiz
         label_files = [
             f for f in all_pdfs
-            if re.search(r"(тикетка|этикетка|все\s*размеры)", f.name, re.IGNORECASE)
+            if re.search(r"(тикетка|этикетка|все\s*размеры|Этикетка)", f.name, re.IGNORECASE)
         ]
         
         # Agar baribir topilmasa – eski logikani ishlatamiz (o‘lcham raqami yo‘q bo‘lgan fayl)
