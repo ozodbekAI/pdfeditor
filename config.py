@@ -1,7 +1,7 @@
 import os
 from pathlib import Path
 
-BOT_TOKEN = "8469041629:AAGOgrcO4ZGTQxveGc2OjytYO2hbwAYq4fU"
+BOT_TOKEN = "8247381561:AAGvwwAIEsX0zfqzPUdZ0QlWH2kUlbrJAYI"
 
 TEMP_DIR = Path("temp")
 TEMP_DIR.mkdir(exist_ok=True)

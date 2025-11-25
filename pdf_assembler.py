@@ -3,9 +3,7 @@ from pathlib import Path
 from typing import Dict, List, Tuple, Optional
 from datetime import datetime
 
-
 from pypdf import PdfReader, PdfWriter
-
 
 
 class PDFAssembler:
@@ -14,7 +12,7 @@ class PDFAssembler:
         self.input_dir = Path(input_dir)
         self.output_dir = Path(output_dir)
         self.log_messages = []
-        self.size_order = [42, 44, 46, 48, 50, 52, 54, 56]
+        self.size_order = [42, 44, 46, 48, 50, 52, 54, 56]   # qat’iy tartib
         self.output_dir.mkdir(exist_ok=True)
         
     def log(self, message: str, level: str = "INFO"):
@@ -75,21 +73,28 @@ class PDFAssembler:
             return {}
     
     def extract_kiz_info(self, filename: str) -> Dict[str, str]:
-        # Faqat fayl nomi (kengaytmasiz)
+        """
+        KIZ nomidan:
+        - article
+        - color
+        - size (bo‘lsa)
+        chiqarib beradi.
+        Agar size bo‘lmasa — avtomatik fallback ishlaydi (pastda).
+        """
         name = Path(filename).stem
         parts = name.split()
         
         size = ""
         
-        # 1) Avval nom ichidagi raqamlarni izlaymiz (orqadan boshlab)
+        # 1) Orqadan raqam qidirish
         for part in reversed(parts):
             if part.isdigit():
                 num = int(part)
-                if num in self.size_order:  # [42, 44, 46, 48, 50, 52, 54, 56]
+                if num in self.size_order:
                     size = str(num)
                     break
         
-        # 2) Agar topilmasa: '56 разме', '56 размер', '56размер' kabi holatlar
+        # 2) "56 размер" kabi format
         if not size:
             m = re.search(r'(\d{2})\s*разм', name, re.IGNORECASE)
             if m:
@@ -97,27 +102,23 @@ class PDFAssembler:
                 if num in self.size_order:
                     size = str(num)
         
-        # Article va rangni ajratamiz
+        # Article + color
         article = ""
         color = ""
         
         if len(parts) >= 2:
-            article = " ".join(parts[:2])  # masalan: "Ю 3718"
+            article = " ".join(parts[:2])
         
         if size:
-            # size qaysi indeksda – shunga qarab color'ni olamiz
             if size in parts:
-                size_idx = parts.index(size)
-                # rang – 3-elementdan (index 2) boshlab size'ga qadar
-                if size_idx > 2:
-                    color = " ".join(parts[2:size_idx])
+                idx = parts.index(size)
+                if idx > 2:
+                    color = " ".join(parts[2:idx])
                 else:
                     color = " ".join(parts[2:])
             else:
-                # size matndan (regex) topilgan bo'lsa, shunchaki qolganini rang deb olamiz
                 color = " ".join(parts[2:])
         else:
-            # O'lchamni topa olmadik – faqat article va rang
             color = " ".join(parts[2:])
         
         return {"article": article, "color": color, "size": size}
@@ -159,7 +160,6 @@ class PDFAssembler:
             return 0
     
     def create_combined_pdf(self, individual_files: List[Path], output_path: Path):
-        """Barcha o'lchamlarni bitta faylga birlashtirish"""
         try:
             self.log("🔗 Umumiy fayl yaratilmoqda...")
             
@@ -183,74 +183,97 @@ class PDFAssembler:
         except Exception as e:
             self.log(f"❌ Xatolik: {e}", "ERROR")
     
-    def process(self, create_combined: bool = True) -> Tuple[bool, List[Path]]:
-        # Barcha PDF fayllar
-        all_pdfs = list(self.input_dir.glob("*.pdf"))
+    def process(self, create_combined: bool = True):
         
-        # 1) Nomi bo'yicha aniq etiketkani topishga harakat qilamiz
-        label_files = [
+        # 1) Hamma PDFlarni topamiz
+        all_pdfs = list(self.input_dir.rglob("*.pdf"))
+
+        # MacOS keraksiz fayllarni tashlab yuboramiz
+        all_pdfs = [
             f for f in all_pdfs
-            if re.search(r"(тикетка|этикетка|все\s*размеры|Этикетка)", f.name, re.IGNORECASE)
+            if "__MACOSX" not in f.parts and not f.name.startswith("._")
         ]
-        
-        
-        if not label_files:
-            self.log("❌ Etiketka fayli topilmadi!", "ERROR")
+
+        if not all_pdfs:
+            self.log("❌ PDF fayllar topilmadi!", "ERROR")
             return False, []
-        
-        label_file = label_files[0]
-        
-        # KIZ fayllar – barcha PDF lar ichidan etiketkani chiqarib tashlaymiz
+
+        # 2) Eng katta pdf — etiketka
+        label_file = max(all_pdfs, key=lambda f: f.stat().st_size)
+        self.log(f"📄 Etiketka fayli tanlandi: {label_file.name}")
+
         kiz_files = [f for f in all_pdfs if f != label_file]
-        
-        if not kiz_files:
-            self.log("❌ KIZ fayllari topilmadi!", "ERROR")
-            return False, []
-        
-        self.log(f"📂 KIZ fayllari: {len(kiz_files)} ta")
-        self.log("")
-        
+        self.log(f"📂 KIZ fayllari: {len(kiz_files)} ta\n")
+
+        # 3) Etiketka sahifalari
         label_reader = PdfReader(label_file)
         size_pages = self.find_label_pages(label_file)
-            
+
         if not size_pages:
             self.log("❌ Etiketka sahifalari topilmadi!", "ERROR")
             return False, []
-        
-        self.log("")
-        self.log("⚙️ Qayta ishlash boshlandi...")
+
+        self.log("\n⚙️ Qayta ishlash boshlandi...")
         self.log("-" * 50)
-        
+
+        # 4) KIZ haqida ma’lumot to‘plash
+        kiz_infos = []
+        known_sizes = set()
+
+        for f in sorted(kiz_files):
+            info = self.extract_kiz_info(f.name)
+            s = int(info["size"]) if info["size"].isdigit() else None
+            kiz_infos.append({"file": f, "info": info, "size": s})
+            if s:
+                known_sizes.add(s)
+
+        missing_sizes = [s for s in self.size_order if s not in known_sizes]
+        unknown_items = [x for x in kiz_infos if x["size"] is None]
+
+        # 5) Avtomatik o‘lcham taqsimlash (universal)
+        if unknown_items:
+            if len(kiz_files) == len(self.size_order) and len(unknown_items) == len(missing_sizes):
+                unknown_items.sort(key=lambda x: x["file"].name)
+                for item, s in zip(unknown_items, missing_sizes):
+                    item["size"] = s
+                    item["info"]["size"] = str(s)
+                    self.log(f"ℹ️ Size topilmadi → avtomatik: {item['file'].name} → {s}")
+            else:
+                for item in unknown_items:
+                    self.log(f"⚠️ {item['file'].name} uchun size topilmadi!", "WARNING")
+
+        # 6) Yig‘ish
         created_files = []
-        
-        for kiz_file in sorted(kiz_files):
-            info = self.extract_kiz_info(kiz_file.name)
-            size = int(info['size']) if info['size'].isdigit() else None
-            
+
+        for item in kiz_infos:
+            kiz_file = item["file"]
+            info = item["info"]
+            size = item["size"]
+
             if size and size in size_pages:
                 tovar_page, qadoq_page = size_pages[size]
-                
-                output_filename = f"Сборка_{info['article'].replace(' ', '')}_{info['color']}_{size}.pdf"
+
+                article_safe = (info["article"] or "NOARTICLE").replace(" ", "")
+                color_safe = (info["color"] or "NOCOLOR").strip()
+
+                output_filename = f"Сборка_{article_safe}_{color_safe}_{size}.pdf"
                 output_path = self.output_dir / output_filename
-                
+
                 pages = self.assemble_pdf_for_size(
                     label_reader, tovar_page, qadoq_page, kiz_file, output_path
                 )
-                
+
                 if pages > 0:
                     created_files.append(output_path)
             else:
                 self.log(f"⚠️ {kiz_file.name} uchun etiketka topilmadi!", "WARNING")
-        
+
+        # 7) Bitta umumiy pdf
         if create_combined and created_files:
-            first_info = self.extract_kiz_info(kiz_files[0].name)
-            combined_filename = f"Сборка_{first_info['article'].replace(' ', '')}_{first_info['color']}_все_размеры.pdf"
-            combined_path = self.output_dir / combined_filename
-            
-            self.log("")
+            first = kiz_infos[0]["info"]
+            combined_name = f"Сборка_{first['article'].replace(' ', '')}_{first['color']}_все_размеры.pdf"
+            combined_path = self.output_dir / combined_name
             self.create_combined_pdf(created_files, combined_path)
             created_files.append(combined_path)
-        
-        
-        return True, created_files
 
+        return True, created_files
