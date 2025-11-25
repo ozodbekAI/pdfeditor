@@ -193,12 +193,6 @@ class PDFAssembler:
             if re.search(r"(тикетка|этикетка|все\s*размеры|Этикетка)", f.name, re.IGNORECASE)
         ]
         
-        # Agar baribir topilmasa – eski logikani ishlatamiz (o‘lcham raqami yo‘q bo‘lgan fayl)
-        if not label_files:
-            label_files = [
-                f for f in all_pdfs
-                if not any(str(size) in f.name for size in self.size_order)
-            ]
         
         if not label_files:
             self.log("❌ Etiketka fayli topilmadi!", "ERROR")
